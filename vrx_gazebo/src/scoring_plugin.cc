@@ -34,6 +34,7 @@ void ScoringPlugin::Load(gazebo::physics::WorldPtr _world,
 
   this->world = _world;
   this->sdf = _sdf;
+  this->node = gazebo_ros::Node::Get(_sdf);
 
   // SDF.
   if (!this->ParseSDFParameters())
@@ -48,15 +49,20 @@ void ScoringPlugin::Load(gazebo::physics::WorldPtr _world,
 
   // Prepopulate the task msg.
   this->taskMsg.name = this->taskName;
-  this->taskMsg.ready_time.fromSec(this->readyTime.Double());
-  this->taskMsg.running_time.fromSec(this->runningTime.Double());
+
+  rclcpp::Time t1(this->readyTime.Double());
+  this->taskMsg.ready_time.sec = t1.seconds();
+  this->taskMsg.ready_time.nanosec = t1.nanoseconds();
+
+  rclcpp::Time t2(this->readyTime.Double());
+  this->taskMsg.running_time.sec = t2.seconds();
+  this->taskMsg.running_time.nanosec = t2.nanoseconds();
   this->UpdateTaskMessage();
 
   // Initialize ROS transport.
-  this->rosNode.reset(new ros::NodeHandle());
-  this->taskPub = this->rosNode->advertise<vrx_gazebo::Task>
+  this->taskPub = this->node->create_publisher<vrx_gazebo::msg::Task>
     (this->taskInfoTopic, 100);
-  this->contactPub = this->rosNode->advertise<vrx_gazebo::Contact>
+  this->contactPub = this->node->create_publisher<vrx_gazebo::msg::Contact>
     (this->contactDebugTopic, 100);
 
   this->updateConnection = gazebo::event::Events::ConnectWorldUpdateBegin(
@@ -201,10 +207,13 @@ void ScoringPlugin::UpdateTaskState()
 void ScoringPlugin::UpdateTaskMessage()
 {
   this->taskMsg.state = this->taskState;
-  this->taskMsg.elapsed_time.fromSec(this->elapsedTime.Double());
-  this->taskMsg.remaining_time.fromSec(this->remainingTime.Double());
+
+  rclcpp::Time t1(this->elapsedTime.Double());
+  this->taskMsg.elapsed_time.sec = t1.seconds();
+  this->taskMsg.elapsed_time.nanosec = t1.nanoseconds();
   this->taskMsg.timed_out = this->timedOut;
   this->taskMsg.score = this->score;
+  this->taskMsg.num_collisions = this->numCollisions;
 }
 
 //////////////////////////////////////////////////
@@ -215,7 +224,7 @@ void ScoringPlugin::PublishStats()
   // We publish stats at 1Hz.
   if (this->currentTime - this->lastStatsSent >= gazebo::common::Time(1, 0))
   {
-    this->taskPub.publish(this->taskMsg);
+    this->taskPub->publish(this->taskMsg);
     this->lastStatsSent = this->currentTime;
   }
 }
@@ -237,43 +246,44 @@ void ScoringPlugin::ReleaseVehicle()
 
   this->lockJointNames.clear();
 
-  gzmsg << "Vehicle released" << std::endl;
+  gzmsg << "ScoringPlugin::Vehicle released" << std::endl;
 }
 
 //////////////////////////////////////////////////
 void ScoringPlugin::OnReady()
 {
-  gzmsg << "OnReady" << std::endl;
+  gzmsg << "ScoringPlugin::OnReady" << std::endl;
 }
 
 //////////////////////////////////////////////////
 void ScoringPlugin::OnRunning()
 {
-  gzmsg << "OnRunning" << std::endl;
+  gzmsg << "ScoringPlugin::OnRunning" << std::endl;
 }
 
 //////////////////////////////////////////////////
 void ScoringPlugin::OnFinished()
 {
-  gzmsg << ros::Time::now() << "  OnFinished" << std::endl;
+  gzmsg << node->get_clock() << "  OnFinished" << std::endl;
   // If a timeoutScore was specified, use it.
   if (this->timedOut && this->timeoutScore > 0.0)
   {
     this->score = this->timeoutScore;
   }
   this->UpdateTaskMessage();
-  this->taskPub.publish(this->taskMsg);
+  this->taskPub->publish(this->taskMsg);
   this->Exit();
 }
 
 //////////////////////////////////////////////////
 void ScoringPlugin::OnCollision()
 {
+  ++this->numCollisions;
 }
 
 //////////////////////////////////////////////////
 void ScoringPlugin::OnCollisionMsg(ConstContactsPtr &_contacts) {
-  // loop though collisions, if any include the wamv, increment collision
+  // loop through collisions, if any include the wamv, increment collision
   // counter
   for (unsigned int i = 0; i < _contacts->contact_size(); ++i) {
     std::string wamvCollisionStr1 = _contacts->contact(i).collision1();
@@ -284,17 +294,21 @@ void ScoringPlugin::OnCollisionMsg(ConstContactsPtr &_contacts) {
         wamvCollisionStr2.substr(0, wamvCollisionStr2.find("lump"));
 
     bool isWamvHit =
-        wamvCollisionSubStr1 == "wamv::base_link::base_link_fixed_joint_" ||
-        wamvCollisionSubStr2 == "wamv::base_link::base_link_fixed_joint_";
+      wamvCollisionSubStr1 == "wamv::base_link::base_link_fixed_joint_" ||
+      wamvCollisionSubStr1 ==
+        "wamv::wamv/base_link::wamv/base_link_fixed_joint_"             ||
+      wamvCollisionSubStr2 == "wamv::base_link::base_link_fixed_joint_" ||
+      wamvCollisionSubStr2 ==
+        "wamv::wamv/base_link::wamv/base_link_fixed_joint_";
     bool isHitBufferPassed = this->currentTime - this->lastCollisionTime >
                              gazebo::common::Time(CollisionBuffer, 0);
 
     // publish a Contact MSG
     if (isWamvHit && this->debug) {
-      this->contactMsg.header.stamp = ros::Time::now();
+      this->contactMsg.header.stamp = node->now();
       this->contactMsg.collision1 = _contacts->contact(i).collision1();
       this->contactMsg.collision2 = _contacts->contact(i).collision2();
-      this->contactPub.publish(this->contactMsg);
+      this->contactPub->publish(this->contactMsg);
     }
 
     if (isWamvHit && isHitBufferPassed) {
@@ -458,15 +472,15 @@ void ScoringPlugin::Exit()
     msg.set_stop(true);
     this->serverControlPub->Publish(msg);
     // shutdown gazebo
-    if (ros::ok())
-      ros::shutdown();
+    if (rclcpp::ok())
+      rclcpp::shutdown();
   }
   else
   {
     gzerr << "VRX_EXIT_ON_COMPLETION and <per_plugin_exit_on_completion> "
       << "both not set, will not shutdown on ScoringPlugin::Exit()"
       << std::endl;
-    ROS_ERROR_STREAM(
+    RCLCPP_ERROR_STREAM(node->get_logger(),
       "VRX_EXIT_ON_COMPLETION and <per_plugin_exit_on_completion> "
       << "both not set, will not shutdown on ScoringPlugin::Exit()");
   }
@@ -478,12 +492,17 @@ void ScoringPlugin::SetTimeoutScore(double _timeoutScore)
   this->timeoutScore = _timeoutScore;
 }
 
-double ScoringPlugin::GetTimeoutScore()
+double ScoringPlugin::GetTimeoutScore() const
 {
   return this->timeoutScore;
 }
 
-double ScoringPlugin::GetRunningStateDuration()
+double ScoringPlugin::GetRunningStateDuration() const
 {
   return this->runningStateDuration;
+}
+
+unsigned int ScoringPlugin::GetNumCollisions() const
+{
+  return this->numCollisions;
 }
