@@ -8,10 +8,10 @@ find_package(usv_gazebo_plugins REQUIRED)
 find_package(xacro REQUIRED)
 
 # Generate urdf files from xacro and install
-xacro_add_files(
-  urdf/wamv_gazebo.urdf.xacro
-  INSTALL DESTINATION urdf
-)
+# xacro_add_files(
+#   urdf/wamv_gazebo.urdf.xacro
+#   INSTALL DESTINATION urdf
+# )
 
 # Install meshes and textures
 install(DIRECTORY models/

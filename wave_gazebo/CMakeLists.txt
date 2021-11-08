@@ -38,12 +38,12 @@ add_custom_target(model_erb_generation ALL
 )
 
 # Generate world files from xacro and install
-xacro_add_files(
-  worlds/ocean.world.xacro
-  worlds/ocean_buoys.world.xacro
-  worlds/ocean_wamv.world.xacro
-  INSTALL DESTINATION worlds
-)
+# xacro_add_files(
+#   worlds/ocean.world.xacro
+#   worlds/ocean_buoys.world.xacro
+#   worlds/ocean_wamv.world.xacro
+#   INSTALL DESTINATION worlds
+# )
 
 
 ament_package()

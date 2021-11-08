@@ -150,10 +150,10 @@ ament_export_libraries(usv_gazebo_wind_plugin)
 ament_export_libraries(usv_gazebo_acoustic_pinger_plugin)
 
 # Generate demo world files from xacro and install
-xacro_add_files(
-  worlds/buoyancy_plugin_demo.world.xacro
-  INSTALL DESTINATION worlds
-)
+# xacro_add_files(
+#   worlds/buoyancy_plugin_demo.world.xacro
+#   INSTALL DESTINATION worlds
+# )
 install(DIRECTORY worlds/
         DESTINATION share/${PROJECT_NAME}/worlds)
 
